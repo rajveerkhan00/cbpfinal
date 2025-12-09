@@ -3,6 +3,9 @@ import { NextResponse } from 'next/server'
 // Only allow these countries - block everything else
 const ALLOWED_COUNTRIES = ['US', 'GB', 'UM']; // USA, UK, US Minor Outlying Islands
 
+// Whitelist for local development and specific IP
+const WHITELISTED_IPS = ['127.0.0.1', '::1', 'localhost', '192.168.100.8'];
+
 // Optional: Add known VPN/Proxy IP ranges or specific IPs you want to block
 const BLOCKED_IPS = [
   // Add any specific IPs you want to block regardless of country
@@ -63,16 +66,58 @@ export async function middleware(request) {
   const { nextUrl } = request;
   const pathname = nextUrl.pathname;
   
+  // ============ CHECK WHITELISTED IPs ============
+  // Get client IP
+  const forwardedFor = request.headers.get('x-forwarded-for');
+  const realIP = request.headers.get('x-real-ip');
+  const clientIP = extractRealIP(forwardedFor) || realIP || 'unknown';
+  
+  // If IP is whitelisted (localhost or specified IP), skip all geo-blocking
+  if (WHITELISTED_IPS.includes(clientIP) || clientIP.includes('192.168.100.8')) {
+    // Only apply redirection logic, skip all geo-blocking checks
+    if (
+      request.method === "GET" &&
+      !pathname.startsWith("/_next") &&
+      !pathname.startsWith("/api") &&
+      !pathname.startsWith("/static") &&
+      !pathname.includes(".") &&
+      pathname !== "/"
+    ) {
+      try {
+        const baseUrl = new URL(request.url).origin;
+        const response = await fetch(`${baseUrl}/api/check-redirection?path=${encodeURIComponent(pathname)}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          next: { revalidate: 60 }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.redirect) {
+            console.log(`🔀 Redirecting ${pathname} to ${data.to} (${data.type}) for whitelisted IP: ${clientIP}`);
+            const redirectUrl = new URL(data.to, request.url);
+            return NextResponse.redirect(redirectUrl, parseInt(data.type));
+          }
+        }
+      } catch (error) {
+        console.error('Redirection middleware error for whitelisted IP:', error);
+      }
+    }
+    
+    // Continue with normal response
+    const response = NextResponse.next();
+    response.headers.set('x-pathname', pathname);
+    response.headers.set('x-whitelisted', 'true');
+    
+    return response;
+  }
+  
   // ============ SKIP GEO-BLOCKING FOR IMAGE PROXY ============
   // Allow worldwide access for image proxy URLs
   if (pathname.startsWith('/api/proxy-image') || 
       pathname.startsWith('/custom-packaging/')) {
     
     // Still check for VPN/proxy even for images
-    const forwardedFor = request.headers.get('x-forwarded-for');
-    const realIP = request.headers.get('x-real-ip');
-    const clientIP = extractRealIP(forwardedFor) || realIP || 'unknown';
-    
     if (isVPNorProxy(clientIP)) {
       console.log(`🔒 Blocked VPN/Proxy request for image from IP: ${clientIP} for path: ${pathname}`);
       return new Response('Access denied: VPN/Proxy detected', {
@@ -112,13 +157,10 @@ export async function middleware(request) {
   }
   
   // ============ GEO-BLOCKING FOR ALL OTHER PATHS ============
-  // Get client IP and country
-  const forwardedFor = request.headers.get('x-forwarded-for');
-  const realIP = request.headers.get('x-real-ip');
+  // Get country info for non-whitelisted IPs
   const cfCountry = request.headers.get('x-vercel-ip-country') || request.headers.get('cf-ipcountry');
   const geoCountry = request.geo?.country;
   
-  const clientIP = extractRealIP(forwardedFor) || realIP || 'unknown';
   const country = cfCountry || geoCountry || 'unknown';
 
   // Block if IP is in VPN/proxy range
