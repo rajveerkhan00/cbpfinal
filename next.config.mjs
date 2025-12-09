@@ -2,7 +2,7 @@
 const nextConfig = {
   images: {
     domains: [
-      "custompackboxes.com", 
+      "cbpfinal.vercel.app", 
       "res.cloudinary.com", 
       "images.unsplash.com", 
       "cdn.pixabay.com", 
