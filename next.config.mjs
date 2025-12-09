@@ -1,41 +1,34 @@
-
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
-    domains: ["custompackboxes.com", "res.cloudinary.com", "images.unsplash.com", "cdn.pixabay.com", "timpackaging.com"],
+    domains: [
+      "custompackboxes.com", 
+      "res.cloudinary.com", 
+      "images.unsplash.com", 
+      "cdn.pixabay.com", 
+      "timpackaging.com",
+      "localhost:3000" // Add localhost for development
+    ],
+    unoptimized: true, // Important for proxy images
   },
   
-  // Add rewrites for friendly image URLs
-  async rewrites() {
-    return [
-      {
-        source: '/custom-packaging/:category/:product/:imageName',
-        destination: '/api/proxy-image/:category/:product/:imageName',
-      },
-      {
-        source: '/images/:path*',
-        destination: 'https://res.cloudinary.com/dfnjpfucl/image/upload/:path*',
-      },
-    ]
-  },
-  
-  // Headers for better caching
+  // Remove rewrites - they might interfere
   async headers() {
     return [
       {
         source: '/api/proxy-image/:path*',
         headers: [
           {
+            key: 'Access-Control-Allow-Origin',
+            value: '*',
+          },
+          {
+            key: 'Access-Control-Allow-Methods',
+            value: 'GET, OPTIONS',
+          },
+          {
             key: 'Cache-Control',
             value: 'public, max-age=31536000, immutable',
-          },
-          {
-            key: 'CDN-Cache-Control',
-            value: 'public, max-age=31536000, immutable',
-          },
-          {
-            key: 'Vary',
-            value: 'Accept-Encoding',
           },
         ],
       },
@@ -51,7 +44,18 @@ const nextConfig = {
     ]
   },
   
-  htmlLimitedBots: '.*',
+  // Enable experimental features for better image handling
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '2mb',
+    },
+  },
+  
+  // Compress output
+  compress: true,
+  
+  // Handle trailing slashes
+  trailingSlash: false,
 };
 
 export default nextConfig;
